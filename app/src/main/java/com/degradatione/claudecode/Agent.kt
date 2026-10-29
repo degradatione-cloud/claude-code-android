@@ -67,6 +67,7 @@ class AppState(private val app: Application) {
             items = emptyList(),
             apiJson = "[]",
             model = prefs.model,
+            mode = prefs.mode,
         )
         sessions = listOf(s) + sessions
         current = s
@@ -135,7 +136,8 @@ Bash, Read, Write, Edit, LS, Glob, Grep run locally on the device. Use them to i
             trimmed.lineSequence().first().take(46) else sess.title
         current = sess.copy(items = items, title = title, updatedAt = System.currentTimeMillis())
         current?.let { store.save(it) }
-        job = scope.launch { runLoop(trimmed) }
+        val useSsh = prefs.mode == "ssh"
+        job = scope.launch { if (useSsh) runRemote(trimmed) else runLoop(trimmed) }
     }
 
     private fun pushItems(base: List<ChatItem>) {
@@ -395,6 +397,162 @@ Bash, Read, Write, Edit, LS, Glob, Grep run locally on the device. Use them to i
             }
         }
         lastFailure?.let { throw it }
+    }
+
+    // ── SSH-режим: настоящий claude CLI на сервере, без API-ключей ──────────
+    private suspend fun runRemote(userText: String) {
+        running = true
+        lastError = null
+        val base = (current?.items ?: emptyList()).toMutableList()
+        base += ChatItem(newId(), ItemKind.USER, userText)
+        pushItems(base)
+        val client = SshClient(prefs)
+        try {
+            val cmd = RemoteCmd.build(prefs, userText, current?.remoteId.orEmpty())
+            LogBus.i("ssh", "запуск: ${cmd.take(400)}")
+            val channel = Channel<String>(Channel.UNLIMITED)
+            val producer = scope.launch(Dispatchers.IO) {
+                try {
+                    client.execStream(cmd) { line -> channel.trySend(line) }
+                } catch (t: Throwable) {
+                    channel.trySend("__FAILURE__" + (t.message ?: t.javaClass.simpleName))
+                } finally {
+                    channel.close()
+                }
+            }
+            val toolIndex = LinkedHashMap<String, Int>()
+            for (raw in channel) {
+                if (raw.startsWith("__FAILURE__")) throw RuntimeException(raw.removePrefix("__FAILURE__"))
+                val line = raw.trim()
+                if (!line.startsWith("{")) {
+                    if (line.isNotEmpty()) LogBus.d("ssh", line.take(300))
+                    continue
+                }
+                val ev = runCatching { JSONObject(line) }.getOrNull() ?: continue
+                when (ev.optString("type")) {
+                    "system" -> LogBus.i("ssh", "init ${ev.optString("subtype")} model=${ev.optString("model")}")
+                    "assistant" -> {
+                        val content = ev.optJSONObject("message")?.optJSONArray("content") ?: continue
+                        for (i in 0 until content.length()) {
+                            val b = content.optJSONObject(i) ?: continue
+                            when (b.optString("type")) {
+                                "text" -> {
+                                    val text = b.optString("text")
+                                    if (text.isNotBlank()) {
+                                        base += ChatItem(newId(), ItemKind.ASSISTANT, text)
+                                        pushItems(base)
+                                    }
+                                }
+                                "thinking" -> {
+                                    val text = b.optString("thinking")
+                                    if (text.isNotBlank()) {
+                                        base += ChatItem(newId(), ItemKind.THINKING, text.take(400))
+                                        pushItems(base)
+                                    }
+                                }
+                                "tool_use" -> {
+                                    val id = b.optString("id")
+                                    val inputJson = b.optJSONObject("input")?.toString() ?: "{}"
+                                    val tc = ToolCall(
+                                        id = id,
+                                        name = b.optString("name"),
+                                        inputJson = inputJson,
+                                        summary = tools.summarize(b.optString("name"), inputJson),
+                                        status = ToolStatus.RUNNING,
+                                    )
+                                    base += ChatItem(newId(), ItemKind.TOOL, tool = tc)
+                                    toolIndex[id] = base.lastIndex
+                                    pushItems(base)
+                                }
+                            }
+                        }
+                    }
+                    "user" -> {
+                        val content = ev.optJSONObject("message")?.optJSONArray("content") ?: continue
+                        for (i in 0 until content.length()) {
+                            val b = content.optJSONObject(i) ?: continue
+                            if (b.optString("type") != "tool_result") continue
+                            val id = b.optString("tool_use_id")
+                            val idx = toolIndex[id] ?: continue
+                            if (idx >= base.size) continue
+                            val out = stringifyContent(b.opt("content"))
+                            val isErr = b.optBoolean("is_error", false)
+                            base[idx] = base[idx].copy(
+                                tool = base[idx].tool?.copy(
+                                    status = if (isErr) ToolStatus.ERROR else ToolStatus.OK,
+                                    output = out,
+                                )
+                            )
+                            pushItems(base)
+                        }
+                    }
+                    "result" -> {
+                        val sid = ev.optString("session_id")
+                        if (sid.isNotBlank()) current = current?.copy(remoteId = sid)
+                        val u = ev.optJSONObject("usage")
+                        if (u != null) {
+                            usageIn = u.optInt("input_tokens", usageIn)
+                            usageOut = u.optInt("output_tokens", usageOut)
+                        }
+                        if (ev.optBoolean("is_error", false)) {
+                            val msg = ev.optString("result").take(600)
+                            lastError = msg
+                            base += ChatItem(newId(), ItemKind.ERROR, msg)
+                            pushItems(base)
+                        }
+                        LogBus.i(
+                            "ssh",
+                            "result ${ev.optString("subtype")} turns=${ev.optInt("num_turns")} cost=${ev.optDouble("total_cost_usd", 0.0)}"
+                        )
+                    }
+                }
+            }
+            producer.join()
+        } catch (ce: CancellationException) {
+            base += ChatItem(newId(), ItemKind.INFO, "⏹ Остановлено пользователем")
+            pushItems(base)
+            throw ce
+        } catch (t: Throwable) {
+            LogBus.e("ssh", "ошибка удалённой сессии", t)
+            val msg = when {
+                t is IllegalStateException -> t.message ?: "SSH: ошибка"
+                else -> "SSH: ${t.javaClass.simpleName}: ${t.message}"
+            }
+            lastError = msg
+            base += ChatItem(newId(), ItemKind.ERROR, msg)
+            pushItems(base)
+        } finally {
+            client.close()
+            running = false
+            current?.let { store.save(it) }
+        }
+    }
+
+    private fun stringifyContent(v: Any?): String = when (v) {
+        null -> ""
+        is String -> v
+        is JSONArray -> (0 until v.length()).joinToString("\n") { i ->
+            val o = v.optJSONObject(i)
+            when {
+                o == null -> v.optString(i)
+                o.optString("type") == "text" -> o.optString("text")
+                else -> o.toString()
+            }
+        }
+        else -> v.toString()
+    }
+
+    fun testSsh(onResult: (Boolean, String) -> Unit) {
+        scope.launch {
+            val client = SshClient(prefs)
+            val out = withContext(Dispatchers.IO) {
+                runCatching { client.ping() }
+            }
+            client.close()
+            val text = out.getOrElse { "Ошибка: ${it.message}" }
+            LogBus.i("ssh", "проверка:\n$text")
+            onResult(out.isSuccess, text)
+        }
     }
 
     fun clearLogs() = LogBus.clear()

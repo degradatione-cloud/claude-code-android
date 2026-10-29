@@ -225,6 +225,19 @@ fun SettingsSheet(
     var dark by remember { mutableStateOf(prefs.darkTheme) }
     var autoUpdate by remember { mutableStateOf(prefs.autoUpdate) }
     var maxTokens by remember { mutableStateOf(prefs.maxTokens.toString()) }
+    var mode by remember { mutableStateOf(prefs.mode) }
+    var sshHost by remember { mutableStateOf(prefs.sshHost) }
+    var sshPort by remember { mutableStateOf(prefs.sshPort.toString()) }
+    var sshUser by remember { mutableStateOf(prefs.sshUser) }
+    var sshAuth by remember { mutableStateOf(prefs.sshAuth) }
+    var sshPass by remember { mutableStateOf(prefs.sshPassword) }
+    var sshKey by remember { mutableStateOf(prefs.sshKey) }
+    var sshPassphrase by remember { mutableStateOf(prefs.sshPassphrase) }
+    var sshWs by remember { mutableStateOf(prefs.sshWorkspace) }
+    var sshCmd by remember { mutableStateOf(prefs.sshCommand) }
+    var sshPerm by remember { mutableStateOf(prefs.sshPermMode) }
+    var testing by remember { mutableStateOf(false) }
+    var testOut by remember { mutableStateOf<String?>(null) }
 
     val models = listOf(
         "claude-sonnet-4-5-20250929",
@@ -244,6 +257,167 @@ fun SettingsSheet(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 18.dp)
         ) {
+            SectionTitle("режим работы")
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Chip(
+                    text = "API-ключ",
+                    selected = mode == "api",
+                    onClick = { mode = "api"; prefs.mode = "api" },
+                )
+                Chip(
+                    text = "Сервер по SSH",
+                    selected = mode == "ssh",
+                    onClick = { mode = "ssh"; prefs.mode = "ssh" },
+                )
+            }
+            Spacer(Modifier.height(6.dp))
+            Text(
+                if (mode == "ssh")
+                    "Команды выполняет настоящий claude на твоём сервере — ключи Anthropic не нужны, авторизация уже там."
+                else
+                    "Запросы идут напрямую в Anthropic (или relay), инструменты работают на телефоне.",
+                style = MaterialTheme.typography.labelSmall,
+                color = p.textTertiary,
+            )
+
+            if (mode == "ssh") {
+                Spacer(Modifier.height(14.dp))
+                SectionTitle("сервер")
+                Spacer(Modifier.height(8.dp))
+                ClaudeTextField(
+                    value = sshHost,
+                    onValueChange = { sshHost = it; prefs.sshHost = it },
+                    label = "Хост / IP",
+                    placeholder = "2.26.99.238",
+                    mono = true,
+                )
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Box(Modifier.weight(1f)) {
+                        ClaudeTextField(
+                            value = sshUser,
+                            onValueChange = { sshUser = it; prefs.sshUser = it },
+                            label = "Пользователь",
+                            mono = true,
+                        )
+                    }
+                    Box(Modifier.width(96.dp)) {
+                        ClaudeTextField(
+                            value = sshPort,
+                            onValueChange = { v -> sshPort = v.filter { it.isDigit() }.take(5); prefs.sshPort = sshPort.toIntOrNull() ?: 22 },
+                            label = "Порт",
+                            mono = true,
+                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Number),
+                        )
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Chip(
+                        text = "Пароль",
+                        selected = sshAuth == "password",
+                        onClick = { sshAuth = "password"; prefs.sshAuth = "password" },
+                    )
+                    Chip(
+                        text = "Приватный ключ",
+                        selected = sshAuth == "key",
+                        onClick = { sshAuth = "key"; prefs.sshAuth = "key" },
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
+                if (sshAuth == "password") {
+                    ClaudeTextField(
+                        value = sshPass,
+                        onValueChange = { sshPass = it; prefs.sshPassword = it },
+                        label = "Пароль SSH",
+                        mono = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                    )
+                } else {
+                    ClaudeTextField(
+                        value = sshKey,
+                        onValueChange = { sshKey = it; prefs.sshKey = it },
+                        label = "Приватный ключ (PEM/OpenSSH)",
+                        placeholder = "-----BEGIN OPENSSH PRIVATE KEY-----",
+                        mono = true,
+                        singleLine = false,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    ClaudeTextField(
+                        value = sshPassphrase,
+                        onValueChange = { sshPassphrase = it; prefs.sshPassphrase = it },
+                        label = "Парольная фраза ключа (если есть)",
+                        mono = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
+                ClaudeTextField(
+                    value = sshWs,
+                    onValueChange = { sshWs = it; prefs.sshWorkspace = it },
+                    label = "Рабочая папка на сервере",
+                    placeholder = "~/projects/app",
+                    mono = true,
+                )
+                Spacer(Modifier.height(10.dp))
+                ClaudeTextField(
+                    value = sshCmd,
+                    onValueChange = { sshCmd = it; prefs.sshCommand = it },
+                    label = "Команда Claude",
+                    placeholder = "claude",
+                    mono = true,
+                )
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Chip(
+                        text = "спрашивать",
+                        selected = sshPerm == "plan",
+                        onClick = { sshPerm = "plan"; prefs.sshPermMode = "plan" },
+                    )
+                    Chip(
+                        text = "правки автоматом",
+                        selected = sshPerm == "acceptEdits",
+                        onClick = { sshPerm = "acceptEdits"; prefs.sshPermMode = "acceptEdits" },
+                    )
+                    Chip(
+                        text = "всё можно",
+                        selected = sshPerm == "dangerous",
+                        onClick = { sshPerm = "dangerous"; prefs.sshPermMode = "dangerous" },
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    GhostButton(if (testing) "Проверяю…" else "Проверить SSH") {
+                        testing = true
+                        testOut = null
+                        state.testSsh { ok, text ->
+                            testing = false
+                            testOut = (if (ok) "✅ " else "❌ ") + text
+                        }
+                    }
+                }
+                testOut?.let { out ->
+                    Spacer(Modifier.height(8.dp))
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .background(p.codeBg, RoundedCornerShape(8.dp))
+                            .padding(10.dp)
+                    ) {
+                        SelectionContainer {
+                            Text(
+                                out,
+                                style = TextStyle(fontFamily = MonoFamily, fontSize = 11.sp, lineHeight = 15.sp),
+                                color = p.textSecondary,
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(18.dp))
+            } else {
+                Spacer(Modifier.height(18.dp))
+            }
             SectionTitle("подключение")
             Spacer(Modifier.height(8.dp))
             ClaudeTextField(

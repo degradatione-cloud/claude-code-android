@@ -14,8 +14,8 @@ android {
         applicationId = "com.degradatione.claudecode"
         minSdk = 35
         targetSdk = 36
-        versionCode = 10000
-        versionName = "1.0.0"
+        versionCode = 10001
+        versionName = "1.0.1"
         resourceConfigurations += listOf("en", "ru")
     }
 
@@ -56,6 +56,11 @@ android {
         }
     }
     buildFeatures { compose = true }
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+        }
+    }
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
 }
 
@@ -70,5 +75,9 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
+    // SSH-клиент для режима «claude на своём сервере»
+    implementation("com.github.mwiede:jsch:2.28.8")
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.17")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

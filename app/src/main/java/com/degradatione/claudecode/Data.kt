@@ -43,6 +43,8 @@ data class SessionMeta(
     var items: List<ChatItem>,
     var apiJson: String,
     var model: String,
+    var mode: String = "api",
+    var remoteId: String = "",
 )
 
 fun newId(): String = UUID.randomUUID().toString().replace("-", "").take(12)
@@ -129,6 +131,8 @@ class SessionStore(private val app: android.content.Context) {
             o.put("createdAt", s.createdAt)
             o.put("updatedAt", s.updatedAt)
             o.put("model", s.model)
+            o.put("mode", s.mode)
+            o.put("remoteId", s.remoteId)
             o.put("apiJson", s.apiJson)
             val items = JSONArray()
             for (i in s.items) {
@@ -194,6 +198,8 @@ class SessionStore(private val app: android.content.Context) {
             items = items,
             apiJson = o.optString("apiJson", "[]"),
             model = o.optString("model", ""),
+            mode = o.optString("mode", "api"),
+            remoteId = o.optString("remoteId", ""),
         )
     }
 }
@@ -240,6 +246,53 @@ class Prefs(private val app: android.content.Context) {
     var workspace: String
         get() = sp.getString("workspace", "") ?: ""
         set(v) = sp.edit().putString("workspace", v).apply()
+
+    // ── режим работы: "api" (ключ Anthropic) или "ssh" (claude CLI на сервере) ──
+    var mode: String
+        get() = sp.getString("mode", "api") ?: "api"
+        set(v) = sp.edit().putString("mode", v).apply()
+
+    var sshHost: String
+        get() = sp.getString("ssh_host", "") ?: ""
+        set(v) = sp.edit().putString("ssh_host", v).apply()
+
+    var sshPort: Int
+        get() = sp.getInt("ssh_port", 22)
+        set(v) = sp.edit().putInt("ssh_port", v).apply()
+
+    var sshUser: String
+        get() = sp.getString("ssh_user", "root") ?: "root"
+        set(v) = sp.edit().putString("ssh_user", v).apply()
+
+    /** "password" или "key" */
+    var sshAuth: String
+        get() = sp.getString("ssh_auth", "password") ?: "password"
+        set(v) = sp.edit().putString("ssh_auth", v).apply()
+
+    var sshPassword: String
+        get() = sp.getString("ssh_password", "") ?: ""
+        set(v) = sp.edit().putString("ssh_password", v).apply()
+
+    var sshKey: String
+        get() = sp.getString("ssh_key", "") ?: ""
+        set(v) = sp.edit().putString("ssh_key", v).apply()
+
+    var sshPassphrase: String
+        get() = sp.getString("ssh_passphrase", "") ?: ""
+        set(v) = sp.edit().putString("ssh_passphrase", v).apply()
+
+    var sshWorkspace: String
+        get() = sp.getString("ssh_workspace", "~") ?: "~"
+        set(v) = sp.edit().putString("ssh_workspace", v).apply()
+
+    var sshCommand: String
+        get() = sp.getString("ssh_command", "claude") ?: "claude"
+        set(v) = sp.edit().putString("ssh_command", v).apply()
+
+    /** plan | acceptEdits | dangerous */
+    var sshPermMode: String
+        get() = sp.getString("ssh_perm", "acceptEdits") ?: "acceptEdits"
+        set(v) = sp.edit().putString("ssh_perm", v).apply()
 }
 
 /** Общая шина логов: FAB-консоль читает то же, что пишется в файл. */

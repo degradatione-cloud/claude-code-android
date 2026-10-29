@@ -43,6 +43,9 @@ jobs:
           echo "code=$VC" >> "$GITHUB_OUTPUT"
           echo "version $VN ($VC)"
 
+      - name: Unit tests (Robolectric composition smoke)
+        run: ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace
+
       - name: Build debug APK
         run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
 
@@ -56,6 +59,14 @@ jobs:
           cp app/build/outputs/apk/release/app-release.apk "out/ClaudeCode-${{ steps.ver.outputs.name }}-release.apk"
           cp app/build/outputs/apk/debug/app-debug.apk "out/ClaudeCode-${{ steps.ver.outputs.name }}-debug.apk"
           ls -la out/
+
+      - name: Upload test reports on failure
+        if: failure()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: app/build/reports/tests/
 
       - name: Upload debug artifact
         continue-on-error: true

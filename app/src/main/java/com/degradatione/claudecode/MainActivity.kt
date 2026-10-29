@@ -29,7 +29,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.BugReport
@@ -73,12 +76,21 @@ import kotlin.math.roundToInt
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        installCrashCatcher()
         enableEdgeToEdge()
         val state = AppState(application)
+        val crash = readCrash()
         setContent {
             ClaudeTheme(dark = state.prefs.darkTheme) {
+                // краш прошлого запуска показываем вместо UI: логи читать не надо
+                var crashText by remember { mutableStateOf(crash) }
                 var onboarded by remember { mutableStateOf(state.prefs.onboarded) }
-                if (!onboarded) {
+                if (crashText != null) {
+                    CrashScreen(crashText ?: "") {
+                        clearCrash()
+                        crashText = null
+                    }
+                } else if (!onboarded) {
                     OnboardingScreen(state) { onboarded = true }
                 } else {
                     MainScreen(state)
@@ -86,7 +98,34 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    private fun installCrashCatcher() {
+        val prev = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, error ->
+            runCatching {
+                java.io.File(filesDir, "last_crash.txt").writeText(
+                    "time: " + java.util.Date() + "\nthread: " + thread.name + "\n\n" +
+                        android.util.Log.getStackTraceString(error)
+                )
+            }
+            prev?.uncaughtException(thread, error)
+        }
+    }
+
+    private fun readCrash(): String? {
+        val f = java.io.File(filesDir, "last_crash.txt")
+        if (!f.exists()) return null
+        return runCatching { f.readText() }.getOrNull()
+    }
+
+    private fun clearCrash() {
+        runCatching { java.io.File(filesDir, "last_crash.txt").delete() }
+    }
 }
+
+fun modeLabel(prefs: Prefs): String =
+    if (prefs.mode == "ssh") "ssh · " + prefs.sshHost.ifBlank { "сервер" }.take(22)
+    else shortModel(prefs.model)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -190,7 +229,7 @@ fun MainScreen(state: AppState) {
             Column(Modifier.fillMaxSize().systemBarsPadding().imePadding()) {
                 TopBar(
                     title = state.current?.title ?: "Claude Code",
-                    subtitle = state.prefs.model,
+                    subtitle = modeLabel(state.prefs),
                     onMenu = { scope.launch { drawerState.open() } },
                     onMore = { showSettings = true },
                 )
@@ -250,7 +289,7 @@ fun MainScreen(state: AppState) {
                 Composer(
                     value = input,
                     running = state.running,
-                    modelName = shortModel(state.prefs.model),
+                    modelName = modeLabel(state.prefs),
                     autoApprove = state.prefs.autoApprove,
                     onValueChange = { input = it },
                     onSend = { sendNow() },
@@ -481,9 +520,16 @@ fun UpdateBanner(
 fun OnboardingScreen(state: AppState, onDone: () -> Unit) {
     val p = LocalClaude.current
     val prefs = state.prefs
+    var mode by remember { mutableStateOf(prefs.mode) }
     var key by remember { mutableStateOf(prefs.apiKey) }
     var base by remember { mutableStateOf(prefs.baseUrl) }
     var model by remember { mutableStateOf(prefs.model) }
+    var host by remember { mutableStateOf(prefs.sshHost) }
+    var user by remember { mutableStateOf(prefs.sshUser) }
+    var pass by remember { mutableStateOf(prefs.sshPassword) }
+    var ws by remember { mutableStateOf(prefs.sshWorkspace) }
+    var testing by remember { mutableStateOf(false) }
+    var testOut by remember { mutableStateOf<String?>(null) }
 
     Column(
         Modifier
@@ -491,54 +537,138 @@ fun OnboardingScreen(state: AppState, onDone: () -> Unit) {
             .background(p.page)
             .systemBarsPadding()
             .imePadding()
-            .padding(horizontal = 22.dp),
-        verticalArrangement = Arrangement.Center,
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 22.dp, vertical = 28.dp),
     ) {
         ClaudeMark(46.dp)
         Spacer(Modifier.height(16.dp))
         Text("Claude Code", style = MaterialTheme.typography.titleLarge.copy(fontSize = 30.sp), color = p.text)
         Text(
-            "Десктопный Claude Code, перенесённый на Android:bash, файлы, диффы и инструменты работают прямо на телефоне.",
+            "Десктопный Claude Code на Android. Два режима: напрямую через API или через свой сервер по SSH — тогда ключи вообще не нужны.",
             style = MaterialTheme.typography.bodyMedium,
             color = p.textSecondary,
             modifier = Modifier.padding(top = 6.dp),
         )
-        Spacer(Modifier.height(26.dp))
-        ClaudeTextField(
-            value = key,
-            onValueChange = { key = it; prefs.apiKey = it },
-            label = "API-ключ Anthropic",
-            placeholder = "sk-ant-api03-…",
-            mono = true,
-        )
-        Spacer(Modifier.height(12.dp))
-        ClaudeTextField(
-            value = base,
-            onValueChange = { base = it; prefs.baseUrl = it },
-            label = "Base URL",
-            placeholder = "https://api.anthropic.com",
-            mono = true,
-        )
-        Spacer(Modifier.height(12.dp))
-        ClaudeTextField(
-            value = model,
-            onValueChange = { model = it; prefs.model = it },
-            label = "Модель",
-            mono = true,
-        )
-        Spacer(Modifier.height(8.dp))
-        Text(
-            "Ключ хранится только на устройстве. Подойдёт токен из `claude setup-token` и любой совместимый relay.",
-            style = MaterialTheme.typography.labelSmall,
-            color = p.textTertiary,
-        )
+        Spacer(Modifier.height(22.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Chip(
+                text = "API-ключ",
+                selected = mode == "api",
+                onClick = { mode = "api"; prefs.mode = "api" },
+            )
+            Chip(
+                text = "Сервер по SSH",
+                selected = mode == "ssh",
+                onClick = { mode = "ssh"; prefs.mode = "ssh" },
+            )
+        }
+        Spacer(Modifier.height(16.dp))
+
+        if (mode == "api") {
+            ClaudeTextField(
+                value = key,
+                onValueChange = { key = it; prefs.apiKey = it },
+                label = "API-ключ Anthropic",
+                placeholder = "sk-ant-api03-…",
+                mono = true,
+            )
+            Spacer(Modifier.height(12.dp))
+            ClaudeTextField(
+                value = base,
+                onValueChange = { base = it; prefs.baseUrl = it },
+                label = "Base URL",
+                placeholder = "https://api.anthropic.com",
+                mono = true,
+            )
+            Spacer(Modifier.height(12.dp))
+            ClaudeTextField(
+                value = model,
+                onValueChange = { model = it; prefs.model = it },
+                label = "Модель",
+                mono = true,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Ключ хранится только на устройстве. Подойдёт токен из `claude setup-token` и любой совместимый relay.",
+                style = MaterialTheme.typography.labelSmall,
+                color = p.textTertiary,
+            )
+        } else {
+            ClaudeTextField(
+                value = host,
+                onValueChange = { host = it; prefs.sshHost = it },
+                label = "Хост или IP сервера",
+                placeholder = "2.26.99.238",
+                mono = true,
+            )
+            Spacer(Modifier.height(12.dp))
+            ClaudeTextField(
+                value = user,
+                onValueChange = { user = it; prefs.sshUser = it },
+                label = "Пользователь",
+                mono = true,
+            )
+            Spacer(Modifier.height(12.dp))
+            ClaudeTextField(
+                value = pass,
+                onValueChange = { pass = it; prefs.sshPassword = it },
+                label = "Пароль (или подключи ключ в настройках)",
+                mono = true,
+                visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+            )
+            Spacer(Modifier.height(12.dp))
+            ClaudeTextField(
+                value = ws,
+                onValueChange = { ws = it; prefs.sshWorkspace = it },
+                label = "Рабочая папка на сервере",
+                placeholder = "~",
+                mono = true,
+            )
+            Spacer(Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                GhostButton(if (testing) "Проверяю…" else "Проверить SSH") {
+                    testing = true
+                    testOut = null
+                    state.testSsh { ok, text ->
+                        testing = false
+                        testOut = (if (ok) "✅ " else "❌ ") + text
+                    }
+                }
+            }
+            testOut?.let { out ->
+                Spacer(Modifier.height(8.dp))
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(p.codeBg, RoundedCornerShape(8.dp))
+                        .padding(10.dp)
+                ) {
+                    SelectionContainer {
+                        Text(
+                            out,
+                            style = TextStyle(fontFamily = MonoFamily, fontSize = 11.sp, lineHeight = 15.sp),
+                            color = p.textSecondary,
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "На сервере должен быть установлен и залогинен claude CLI (`claude --version`).",
+                style = MaterialTheme.typography.labelSmall,
+                color = p.textTertiary,
+            )
+        }
+
         Spacer(Modifier.height(22.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            PrimaryButton("Начать", enabled = key.isNotBlank()) {
+            PrimaryButton("Начать", enabled = if (mode == "api") key.isNotBlank() else host.isNotBlank()) {
+                prefs.mode = mode
                 prefs.onboarded = true
                 onDone()
             }
             GhostButton("Пропустить") {
+                prefs.mode = mode
                 prefs.onboarded = true
                 onDone()
             }
@@ -549,5 +679,47 @@ fun OnboardingScreen(state: AppState, onDone: () -> Unit) {
             style = MaterialTheme.typography.labelSmall,
             color = p.textTertiary,
         )
+    }
+}
+
+@Composable
+fun CrashScreen(text: String, onContinue: () -> Unit) {
+    val p = LocalClaude.current
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(p.page)
+            .systemBarsPadding()
+            .padding(18.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            ClaudeMark(22.dp)
+            Spacer(Modifier.width(8.dp))
+            Text("Прошлый запуск упал", style = MaterialTheme.typography.titleMedium, color = p.text)
+        }
+        Spacer(Modifier.height(10.dp))
+        Box(
+            Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .background(p.codeBg, RoundedCornerShape(10.dp))
+                .border(1.dp, p.border, RoundedCornerShape(10.dp))
+                .verticalScroll(rememberScrollState())
+                .padding(10.dp)
+        ) {
+            SelectionContainer {
+                Text(
+                    text,
+                    style = TextStyle(fontFamily = MonoFamily, fontSize = 10.5.sp, lineHeight = 15.sp),
+                    color = p.textSecondary,
+                )
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            PrimaryButton("Продолжить") { onContinue() }
+            GhostButton("Скопировать") { clipboard.setText(androidx.compose.ui.text.AnnotatedString(text)) }
+        }
     }
 }
