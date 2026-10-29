@@ -43,6 +43,9 @@ class AppState(private val app: Application) {
         private set
     var lastError by mutableStateOf<String?>(null)
         private set
+    /** Счётчик «нужны настройки»: UI слушает и открывает шторку сам. */
+    var settingsRequest by mutableStateOf(0)
+        private set
 
     enum class Verdict { ALLOW, ALLOW_ALL, DENY }
 
@@ -137,6 +140,20 @@ Bash, Read, Write, Edit, LS, Glob, Grep run locally on the device. Use them to i
         current = sess.copy(items = items, title = title, updatedAt = System.currentTimeMillis())
         current?.let { store.save(it) }
         val useSsh = prefs.mode == "ssh"
+        val missing = when {
+            useSsh && prefs.sshHost.isBlank() -> "SSH-сервер не настроен: Настройки → режим «Сервер по SSH» → хост"
+            !useSsh && prefs.apiKey.isBlank() -> "API-ключ не задан: Настройки → «API-ключ» (или переключись на сервер по SSH)"
+            else -> null
+        }
+        if (missing != null) {
+            LogBus.w("agent", missing)
+            val items = (current?.items ?: emptyList()) + ChatItem(newId(), ItemKind.ERROR, missing)
+            pushItems(items)
+            lastError = missing
+            settingsRequest++
+            current?.let { store.save(it) }
+            return
+        }
         job = scope.launch { if (useSsh) runRemote(trimmed) else runLoop(trimmed) }
     }
 
@@ -228,6 +245,7 @@ Bash, Read, Write, Edit, LS, Glob, Grep run locally on the device. Use them to i
                 else -> "${t.javaClass.simpleName}: ${t.message}"
             }
             lastError = msg
+            if (t is MissingConfigException) settingsRequest++
             val base = current?.items?.toMutableList() ?: mutableListOf()
             base += ChatItem(newId(), ItemKind.ERROR, msg)
             pushItems(base)
@@ -390,7 +408,7 @@ Bash, Read, Write, Edit, LS, Glob, Grep run locally on the device. Use them to i
                 while (base.size > sizeBefore) base.removeAt(base.lastIndex)
                 pushItems(base)
                 val retriable = (t is ApiException && t.code in listOf(408, 429, 500, 502, 503, 504, 529)) ||
-                    (t !is ApiException && attempt < 3)
+                    t is java.io.IOException
                 LogBus.w("agent", "попытка $attempt не удалась: ${t.message}")
                 if (!retriable || attempt >= 3) throw t
                 delay(2500L * attempt)

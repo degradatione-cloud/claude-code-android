@@ -8,6 +8,9 @@ import java.net.URL
 
 class ApiException(val code: Int, val body: String) : Exception("HTTP $code: ${body.take(400)}")
 
+/** Не настроено окружение (нет ключа/хоста) — повторять бессмысленно. */
+class MissingConfigException(message: String) : Exception(message)
+
 /**
  * Потоковый клиент Anthropic Messages API (SSE).
  * Работает и с официальным api.anthropic.com, и с любым совместимым relay'ем.
@@ -44,7 +47,7 @@ class AnthropicClient(private val prefs: Prefs) {
             else -> "$base/v1/messages"
         }
         val key = prefs.apiKey.trim()
-        if (key.isEmpty()) throw IllegalStateException("API-ключ не задан — открой настройки")
+        if (key.isEmpty()) throw MissingConfigException("API-ключ не задан — открой Настройки")
         val conn = (URL(urlStr).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             connectTimeout = 30_000

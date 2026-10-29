@@ -165,6 +165,11 @@ fun MainScreen(state: AppState) {
         if (state.prefs.autoUpdate) checkUpdates(false)
     }
 
+    // ошибка конфигурации (нет ключа/хоста) сама открывает настройки
+    LaunchedEffect(state.settingsRequest) {
+        if (state.settingsRequest > 0) showSettings = true
+    }
+
     fun sendNow() {
         val text = input.trim()
         if (text.isEmpty()) return

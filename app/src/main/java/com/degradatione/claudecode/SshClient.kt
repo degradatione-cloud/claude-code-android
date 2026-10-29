@@ -32,13 +32,39 @@ class SshClient(private val prefs: Prefs) {
                 )
             }
             val s = jsch.getSession(prefs.sshUser.trim().ifBlank { "root" }, host, prefs.sshPort.coerceIn(1, 65535))
-            if (prefs.sshAuth != "key") s.setPassword(prefs.sshPassword)
+            // пароль задаём всегда, если он есть: часть серверов требует ключ + пароль
+            if (prefs.sshPassword.isNotEmpty()) s.setPassword(prefs.sshPassword)
             val cfg = java.util.Properties()
             cfg["StrictHostKeyChecking"] = "no"
-            cfg["PreferredAuthentications"] = if (prefs.sshAuth == "key") "publickey" else "password,keyboard-interactive,publickey"
+            cfg["PreferredAuthentications"] =
+                if (prefs.sshAuth == "key") "publickey,password,keyboard-interactive"
+                else "password,publickey,keyboard-interactive"
+            // старые серверы: ssh-rsa подпись, sha1-обмен ключами
+            cfg["PubkeyAcceptedAlgorithms"] = "+ssh-rsa,+ssh-rsa-cert-v01@openssh.com"
+            cfg["SignatureAlgorithms"] = "+ssh-rsa"
+            cfg["server_host_key"] = "+ssh-rsa"
+            cfg["kex"] = "+diffie-hellman-group14-sha1,diffie-hellman-group1-sha1"
             s.setConfig(cfg)
             s.timeout = 60_000
-            s.connect(20_000)
+            try {
+                s.connect(20_000)
+            } catch (e: com.jcraft.jsch.JSchException) {
+                val raw = e.message ?: ""
+                session = null
+                val hint = when {
+                    raw.contains("Auth fail", true) || raw.contains("Auth cancel", true) ->
+                        "Сервер отклонил логин/пароль. Варианты: неверный пароль, сервер пускает только по ключу " +
+                            "(`PasswordAuthentication no` в sshd_config), или пользователь не тот."
+                    raw.contains("Connection refused", true) -> "Порт закрыт: на $host:${prefs.sshPort} никто не слушает."
+                    raw.contains("timeout", true) || raw.contains("timed out", true) ->
+                        "Нет ответа от $host:${prefs.sshPort} — таймаут. Проверь IP/фаервол."
+                    raw.contains("Host is not in", true) || raw.contains("key", true) ->
+                        "Проблема с ключом сервера: $raw"
+                    else -> "SSH: $raw"
+                }
+                LogBus.e("ssh", "connect: $raw")
+                throw IllegalStateException(hint)
+            }
             LogBus.i("ssh", "подключено к ${prefs.sshUser}@$host:${prefs.sshPort}")
             session = s
             return s
@@ -93,9 +119,12 @@ class SshClient(private val prefs: Prefs) {
     }
 
     fun ping(): String = exec(
-        "echo \"host=\$(hostname)\"; echo \"whoami=\$(whoami)\"; " +
-            "echo \"pwd=\$(pwd)\"; command -v claude || echo 'claude: не найден в PATH'; " +
-            "claude --version 2>&1 | head -2"
+        "echo \"host=\$(hostname)\"; echo \"whoami=\$(whoami)\"; echo \"pwd=\$(pwd)\"; " +
+            "C=\$(command -v claude 2>/dev/null); " +
+            "if [ -z \"\$C\" ]; then for p in \$HOME/.local/bin/claude /usr/local/bin/claude " +
+            "\$HOME/.npm-global/bin/claude \$HOME/.bun/bin/claude; do [ -x \"\$p\" ] && C=\$p && break; done; fi; " +
+            "echo \"claude=\${C:-НЕ НАЙДЕН}\"; " +
+            "if [ -n \"\$C\" ]; then \"\$C\" --version 2>&1 | head -2; fi"
     )
 
     fun close() {

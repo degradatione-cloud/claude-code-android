@@ -236,6 +236,7 @@ fun SettingsSheet(
     var sshWs by remember { mutableStateOf(prefs.sshWorkspace) }
     var sshCmd by remember { mutableStateOf(prefs.sshCommand) }
     var sshPerm by remember { mutableStateOf(prefs.sshPermMode) }
+    var showSshPass by remember { mutableStateOf(false) }
     var testing by remember { mutableStateOf(false) }
     var testOut by remember { mutableStateOf<String?>(null) }
 
@@ -332,7 +333,13 @@ fun SettingsSheet(
                         onValueChange = { sshPass = it; prefs.sshPassword = it },
                         label = "Пароль SSH",
                         mono = true,
-                        visualTransformation = PasswordVisualTransformation(),
+                        visualTransformation = if (showSshPass) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailing = {
+                            IconTouch(
+                                if (showSshPass) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
+                                "Показать пароль", p.textTertiary, 18.dp,
+                            ) { showSshPass = !showSshPass }
+                        },
                     )
                 } else {
                     ClaudeTextField(
