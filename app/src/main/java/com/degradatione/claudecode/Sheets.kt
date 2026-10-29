@@ -69,6 +69,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 import java.io.File
 
 @Composable
@@ -215,6 +216,7 @@ fun SettingsSheet(
     val p = LocalClaude.current
     val prefs = state.prefs
     val ctx = LocalContext.current
+    val clipboard = LocalClipboardManager.current
     var key by remember { mutableStateOf(prefs.apiKey) }
     var base by remember { mutableStateOf(prefs.baseUrl) }
     var model by remember { mutableStateOf(prefs.model) }
@@ -336,8 +338,7 @@ fun SettingsSheet(
             )
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 10.dp)) {
                 GhostButton("Копировать путь") {
-                    val cm = android.content.ClipboardManager(ctx, null)
-                    cm.setPrimaryClip(android.content.ClipData.newPlainText("path", state.tools.workspace.absolutePath))
+                    clipboard.setText(AnnotatedString(state.tools.workspace.absolutePath))
                 }
             }
 
@@ -407,7 +408,7 @@ fun FilesSheet(state: AppState, onClose: () -> Unit) {
     var files by remember { mutableStateOf(state.listWorkspaceFiles()) }
     var preview by remember { mutableStateOf<Pair<String, String>?>(null) }
     var previewName by remember { mutableStateOf("") }
-    val scope = remember { kotlinx.coroutines.MainScope() }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
 
     Column(Modifier.fillMaxWidth().fillMaxHeight(0.86f)) {
         SheetHeader("Рабочая папка", state.tools.workspace.absolutePath, onClose)
