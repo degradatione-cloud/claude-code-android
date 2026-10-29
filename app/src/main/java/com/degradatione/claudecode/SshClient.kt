@@ -18,7 +18,9 @@ class SshClient(private val prefs: Prefs) {
         synchronized(lock) {
             session?.let { if (it.isConnected) return it }
             val host = prefs.sshHost.trim()
-            if (host.isEmpty()) throw IllegalStateException("Не задан SSH-хост (Настройки → Сервер)")
+            if (host.isEmpty()) throw IllegalStateException("Не задан SSH-хост (Настройки → режим «Сервер по SSH»)")
+            val user = prefs.sshUser.trim().ifBlank { "root" }
+            val port = prefs.sshPort.coerceIn(1, 65535)
             val jsch = JSch()
             if (prefs.sshAuth == "key") {
                 val key = prefs.sshKey.trim()
@@ -31,44 +33,74 @@ class SshClient(private val prefs: Prefs) {
                     if (pass.isBlank()) null else pass.toByteArray(Charsets.UTF_8),
                 )
             }
-            val s = jsch.getSession(prefs.sshUser.trim().ifBlank { "root" }, host, prefs.sshPort.coerceIn(1, 65535))
-            // пароль задаём всегда, если он есть: часть серверов требует ключ + пароль
-            if (prefs.sshPassword.isNotEmpty()) s.setPassword(prefs.sshPassword)
-            val cfg = java.util.Properties()
-            cfg["StrictHostKeyChecking"] = "no"
-            cfg["PreferredAuthentications"] =
-                if (prefs.sshAuth == "key") "publickey,password,keyboard-interactive"
-                else "password,publickey,keyboard-interactive"
-            // старые серверы: ssh-rsa подпись, sha1-обмен ключами
-            cfg["PubkeyAcceptedAlgorithms"] = "+ssh-rsa,+ssh-rsa-cert-v01@openssh.com"
-            cfg["SignatureAlgorithms"] = "+ssh-rsa"
-            cfg["server_host_key"] = "+ssh-rsa"
-            cfg["kex"] = "+diffie-hellman-group14-sha1,diffie-hellman-group1-sha1"
-            s.setConfig(cfg)
-            s.timeout = 60_000
-            try {
-                s.connect(20_000)
-            } catch (e: com.jcraft.jsch.JSchException) {
-                val raw = e.message ?: ""
-                session = null
-                val hint = when {
-                    raw.contains("Auth fail", true) || raw.contains("Auth cancel", true) ->
-                        "Сервер отклонил логин/пароль. Варианты: неверный пароль, сервер пускает только по ключу " +
-                            "(`PasswordAuthentication no` в sshd_config), или пользователь не тот."
-                    raw.contains("Connection refused", true) -> "Порт закрыт: на $host:${prefs.sshPort} никто не слушает."
-                    raw.contains("timeout", true) || raw.contains("timed out", true) ->
-                        "Нет ответа от $host:${prefs.sshPort} — таймаут. Проверь IP/фаервол."
-                    raw.contains("Host is not in", true) || raw.contains("key", true) ->
-                        "Проблема с ключом сервера: $raw"
-                    else -> "SSH: $raw"
+            var last: com.jcraft.jsch.JSchException? = null
+            // 0) штатные алгоритмы jsch (современный OpenSSH)
+            // 1) совсем без настроек
+            // 2) legacy-набор для древних серверов
+            // kex НЕ переопределяем частично: jsch берёт список целиком, и клиент
+            // начинает предлагать только sha1 → «Algorithm negotiation fail».
+            for (mode in listOf(0, 1, 2)) {
+                val s = jsch.getSession(user, host, port)
+                if (prefs.sshPassword.isNotEmpty()) s.setPassword(prefs.sshPassword)
+                val cfg = java.util.Properties()
+                cfg["StrictHostKeyChecking"] = "no"
+                if (mode == 0) {
+                    cfg["PreferredAuthentications"] =
+                        if (prefs.sshAuth == "key") "publickey,password,keyboard-interactive"
+                        else "password,publickey,keyboard-interactive"
+                } else if (mode == 2) {
+                    cfg["PreferredAuthentications"] = "publickey,password,keyboard-interactive"
+                    cfg["server_host_key"] = LEGACY_HOSTKEY
+                    cfg["PubkeyAcceptedAlgorithms"] = LEGACY_PUBKEY
+                    cfg["kex"] = LEGACY_KEX
                 }
-                LogBus.e("ssh", "connect: $raw")
-                throw IllegalStateException(hint)
+                s.setConfig(cfg)
+                s.timeout = 60_000
+                try {
+                    s.connect(20_000)
+                    LogBus.i("ssh", "подключено к $user@$host:$port (профиль $mode)")
+                    session = s
+                    return s
+                } catch (e: com.jcraft.jsch.JSchException) {
+                    last = e
+                    runCatching { s.disconnect() }
+                    val raw = e.message ?: ""
+                    LogBus.w("ssh", "профиль $mode: $raw")
+                    val negotiation = raw.contains("Algorithm negotiation fail", true) ||
+                        raw.contains("no matching", true) ||
+                        raw.contains("No common", true)
+                    val authFail = raw.contains("Auth fail", true) || raw.contains("Auth cancel", true)
+                    if (authFail) break
+                    if (!negotiation) break
+                }
             }
-            LogBus.i("ssh", "подключено к ${prefs.sshUser}@$host:${prefs.sshPort}")
-            session = s
-            return s
+            val raw = last?.message ?: "неизвестная ошибка"
+            val hint = when {
+                raw.contains("Auth fail", true) || raw.contains("Auth cancel", true) ->
+                    "Сервер отклонил логин: неверный пароль/ключ, либо вход только по ключу, либо другой пользователь."
+                raw.contains("Connection refused", true) -> "Порт закрыт: на $host:$port никто не слушает."
+                raw.contains("timeout", true) || raw.contains("timed out", true) ->
+                    "Нет ответа от $host:$port — таймаут. Проверь IP и фаервол."
+                raw.contains("Algorithm negotiation fail", true) ->
+                    "Сервер и телефон не сошлись по шифрованию даже с legacy-набором. Пришли этот лог — добавлю нужный алгоритм."
+                else -> "SSH: $raw"
+            }
+            LogBus.e("ssh", "connect: $raw")
+            throw IllegalStateException(hint)
         }
+    }
+
+    companion object {
+        private const val LEGACY_KEX =
+            "curve25519-sha256,curve25519-sha256@libssh.org,ecdh-sha2-nistp256,ecdh-sha2-nistp384," +
+                "ecdh-sha2-nistp521,diffie-hellman-group-exchange-sha256,diffie-hellman-group16-sha512," +
+                "diffie-hellman-group18-sha512,diffie-hellman-group14-sha256,diffie-hellman-group14-sha1," +
+                "diffie-hellman-group1-sha1"
+        private const val LEGACY_HOSTKEY =
+            "ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521," +
+                "rsa-sha2-512,rsa-sha2-256,ssh-rsa,ssh-dss"
+        private const val LEGACY_PUBKEY =
+            "ssh-ed25519,ecdsa-sha2-nistp256,rsa-sha2-512,rsa-sha2-256,ssh-rsa"
     }
 
     /** Выполнить команду и отдать stdout построчно. Блокирующий вызов → Dispatchers.IO. */
