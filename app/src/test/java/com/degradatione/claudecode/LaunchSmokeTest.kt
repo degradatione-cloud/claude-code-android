@@ -16,7 +16,7 @@ import org.robolectric.annotation.Config
  * не выполняются и падающий экран проходит тест.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [36])
+@Config(sdk = [35])
 class LaunchSmokeTest {
 
     @Test
