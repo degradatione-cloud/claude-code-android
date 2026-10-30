@@ -490,7 +490,7 @@ fun SettingsSheet(
                         onClick = { model = m; prefs.model = m },
                     )
                 }
-            
+            }
 
             Spacer(Modifier.height(18.dp))
             SectionTitle("стиль ответа")
