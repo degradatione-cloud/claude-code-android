@@ -291,6 +291,16 @@ fun MainScreen(state: AppState) {
                         }
                     }
                 }
+                val ctxLimit = 200_000
+                val used = state.usageIn + state.usageOut
+                val ctxPct = if (used > 0) (used * 100 / ctxLimit).coerceIn(0, 100) else -1
+                StatusLine(
+                    model = shortModel(state.prefs.model),
+                    mode = if (state.prefs.autoApprove) "auto-accept" else "ask",
+                    ctxPct = ctxPct,
+                    cwd = "~/" + state.tools.workspace.name,
+                    onClick = { showSettings = true },
+                )
                 Composer(
                     value = input,
                     running = state.running,

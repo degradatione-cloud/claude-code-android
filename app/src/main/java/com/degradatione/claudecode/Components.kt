@@ -34,7 +34,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -51,6 +53,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
 import org.json.JSONObject
 
 @Composable
@@ -144,81 +147,96 @@ private fun statusColor(p: ClaudePalette, s: ToolStatus): Color = when (s) {
     ToolStatus.PENDING -> p.textTertiary
 }
 
+/** Глифы как в настоящем Claude Code: ● в работе, ✓ готово, ✗ ошибка, ⊘ отказ. */
+private fun glyphOf(s: ToolStatus): String = when (s) {
+    ToolStatus.RUNNING -> "●"
+    ToolStatus.OK -> "✓"
+    ToolStatus.ERROR -> "✗"
+    ToolStatus.DENIED -> "⊘"
+    ToolStatus.PENDING -> "○"
+}
+
+/**
+ * Строка инструмента в стиле CLI: `● Bash(git status)` + отступ `⎿` для вывода,
+ * свёрнутый результат, разворот по тапу. Никаких карточек-коробок.
+ */
 @Composable
 fun ToolCard(tool: ToolCall, modifier: Modifier = Modifier) {
     val p = LocalClaude.current
     var expanded by remember(tool.id) { mutableStateOf(tool.status == ToolStatus.ERROR) }
-    val clipboard = LocalClipboardManager.current
-    val shape = RoundedCornerShape(12.dp)
+    val args = remember(tool.name, tool.inputJson) { argSummary(tool.name, tool.inputJson) }
+    val out = tool.output.orEmpty().trimEnd()
+    val lines = remember(out) { if (out.isEmpty()) emptyList() else out.lines() }
+    val tint = statusColor(p, tool.status)
     Column(
         modifier
             .fillMaxWidth()
-            .background(p.card, shape)
-            .border(1.dp, p.border, shape)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
             ) { expanded = !expanded }
-            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .padding(vertical = 2.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            StatusDot(statusColor(p, tool.status))
-            Spacer(Modifier.width(8.dp))
+        Row(verticalAlignment = Alignment.Top) {
             Text(
-                text = tool.name,
-                style = TextStyle(fontFamily = MonoFamily, fontSize = 13.sp, fontWeight = FontWeight.Medium),
+                glyphOf(tool.status),
+                style = TextStyle(fontFamily = MonoFamily, fontSize = 12.sp, lineHeight = 18.sp),
+                color = tint,
+            )
+            Spacer(Modifier.width(7.dp))
+            Text(
+                tool.name,
+                style = TextStyle(fontFamily = MonoFamily, fontSize = 12.5.sp, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold),
                 color = p.text,
             )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                text = tool.summary,
-                style = TextStyle(fontFamily = MonoFamily, fontSize = 12.sp),
-                color = p.textSecondary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            if (tool.status == ToolStatus.RUNNING) {
-                MiniSpinner()
-                Spacer(Modifier.width(4.dp))
-            }
-            Icon(
-                imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
-                contentDescription = null,
-                tint = p.textTertiary,
-                modifier = Modifier.size(18.dp),
-            )
-        }
-        if (expanded) {
-            val params = prettyParams(tool.name, tool.inputJson)
-            if (params.isNotBlank()) {
-                Spacer(Modifier.height(8.dp))
+            if (args.isNotBlank()) {
                 Text(
-                    text = params,
-                    style = TextStyle(fontFamily = MonoFamily, fontSize = 12.sp, lineHeight = 17.sp),
+                    "($args)",
+                    style = TextStyle(fontFamily = MonoFamily, fontSize = 12.5.sp, lineHeight = 18.sp),
                     color = p.textSecondary,
+                    maxLines = if (expanded) 6 else 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
                 )
+            } else {
+                Spacer(Modifier.weight(1f))
             }
-            val out = tool.output
-            if (!out.isNullOrBlank()) {
-                Spacer(Modifier.height(8.dp))
-                if (tool.name == "Edit" || tool.name == "Write") {
-                    DiffView(tool.name, tool.inputJson)
-                } else {
-                    Box(
-                        Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = 340.dp)
-                            .background(p.codeBg, RoundedCornerShape(8.dp))
-                            .padding(10.dp)
-                    ) {
-                        SelectionContainer {
+            if (tool.status == ToolStatus.RUNNING) {
+                Spacer(Modifier.width(6.dp))
+                MiniSpinner(10.dp)
+            }
+        }
+        when {
+            tool.name == "Edit" || tool.name == "Write" -> if (expanded) {
+                Spacer(Modifier.height(6.dp))
+                DiffView(tool.name, tool.inputJson)
+            }
+            lines.isNotEmpty() -> {
+                val shown = if (expanded) lines else lines.take(2)
+                Column(Modifier.padding(top = 1.dp)) {
+                    shown.forEachIndexed { i, line ->
+                        Row {
                             Text(
-                                text = out.take(6000),
+                                if (i == 0) "  ⎿  " else "     ",
                                 style = TextStyle(fontFamily = MonoFamily, fontSize = 11.5.sp, lineHeight = 16.sp),
-                                color = if (tool.status == ToolStatus.ERROR) p.danger else p.text,
+                                color = p.textTertiary,
+                            )
+                            Text(
+                                line.ifEmpty { " " },
+                                style = TextStyle(fontFamily = MonoFamily, fontSize = 11.5.sp, lineHeight = 16.sp),
+                                color = if (tool.status == ToolStatus.ERROR) p.danger else p.textSecondary,
+                                maxLines = if (expanded) Int.MAX_VALUE else 1,
+                                overflow = TextOverflow.Ellipsis,
                             )
                         }
+                    }
+                    if (!expanded && lines.size > shown.size) {
+                        Text(
+                            "     … +${lines.size - shown.size} строк",
+                            style = TextStyle(fontFamily = MonoFamily, fontSize = 11.sp, lineHeight = 15.sp),
+                            color = p.textTertiary,
+                            modifier = Modifier.padding(top = 1.dp),
+                        )
                     }
                 }
             }
@@ -226,15 +244,23 @@ fun ToolCard(tool: ToolCall, modifier: Modifier = Modifier) {
     }
 }
 
-private fun prettyParams(name: String, json: String): String {
+private fun argSummary(name: String, json: String): String {
     val o = runCatching { JSONObject(json) }.getOrNull() ?: return ""
     return when (name) {
-        "Bash" -> "$ " + o.optString("command")
-        "Edit" -> "old: " + o.optString("old_string").take(200) + "\nnew: " + o.optString("new_string").take(200)
-        "Write" -> "содержимое: " + o.optString("content").length + " симв."
-        "Read" -> o.optString("file_path")
-        else -> o.toString()
-    }
+        "Bash" -> o.optString("command")
+        "Read", "Write", "Edit" -> shortPath(o.optString("file_path"))
+        "LS" -> shortPath(o.optString("path"))
+        "Grep" -> o.optString("pattern") + (o.optString("path").takeIf { it.isNotBlank() }?.let { "  $it" } ?: "")
+        "Glob" -> o.optString("pattern")
+        else -> o.keys().asSequence().take(2).joinToString(", ") { k -> "$k=${o.optString(k).take(40)}" }
+    }.replace("\n", " ⏎ ").take(200)
+}
+
+private fun shortPath(path: String): String {
+    if (path.isBlank()) return ""
+    val marker = "/files/claude-work/"
+    val idx = path.indexOf(marker)
+    return if (idx >= 0) path.substring(idx + marker.length) else path.substringAfterLast('/')
 }
 
 @Composable
@@ -389,16 +415,8 @@ fun ChatItemView(item: ChatItem, onRetry: (() -> Unit)? = null) {
                 }
             }
         }
-        ItemKind.THINKING -> Row(Modifier.fillMaxWidth().padding(start = 4.dp)) {
-            Text(
-                text = "✳ размышляет: " + item.text.take(220),
-                style = MaterialTheme.typography.bodySmall.copy(fontStyle = FontStyle.Italic),
-                color = p.textTertiary,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        ItemKind.TOOL -> item.tool?.let { ToolCard(it, Modifier.padding(start = 28.dp)) }
+        ItemKind.THINKING -> ThinkingLine(item.text, item.streaming)
+        ItemKind.TOOL -> item.tool?.let { ToolCard(it, Modifier.padding(start = 26.dp)) }
         ItemKind.ERROR -> Column(
             Modifier
                 .fillMaxWidth()
@@ -441,37 +459,62 @@ fun EmptyState(onExample: (String) -> Unit) {
         Modifier
             .fillMaxWidth()
             .padding(horizontal = 8.dp, vertical = 24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        ClaudeMark(44.dp)
-        Spacer(Modifier.height(14.dp))
-        Text(
-            "Claude Code",
-            style = MaterialTheme.typography.titleLarge.copy(fontSize = 26.sp),
-            color = p.text,
-        )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            "Работает прямо на телефоне: bash, файлы, диффы.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = p.textSecondary,
-        )
-        Spacer(Modifier.height(22.dp))
-        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "✻",
+                style = TextStyle(fontFamily = MonoFamily, fontSize = 26.sp),
+                color = p.accent,
+            )
+            Spacer(Modifier.width(12.dp))
+            Column {
+                Text(
+                    "Welcome to Claude Code",
+                    style = MaterialTheme.typography.titleLarge.copy(fontSize = 24.sp),
+                    color = p.text,
+                )
+                Text(
+                    "нативный · Android · bash, файлы, диффы",
+                    style = TextStyle(fontFamily = MonoFamily, fontSize = 11.5.sp),
+                    color = p.textTertiary,
+                )
+            }
+        }
+        Spacer(Modifier.height(18.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            listOf(
+                "/model     сменить модель",
+                "/clear     новая сессия",
+                "/files     рабочая папка",
+                "/logs      консоль и ошибки",
+            ).forEach { line ->
+                Text(
+                    line,
+                    style = TextStyle(fontFamily = MonoFamily, fontSize = 12.sp, lineHeight = 18.sp),
+                    color = p.textSecondary,
+                )
+            }
+        }
+        Spacer(Modifier.height(20.dp))
+        SectionTitle("с чего начать")
+        Spacer(Modifier.height(8.dp))
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             examples.forEach { ex ->
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .background(p.card, RoundedCornerShape(12.dp))
-                        .border(1.dp, p.border, RoundedCornerShape(12.dp))
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
                         ) { onExample(ex) }
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                        .padding(horizontal = 4.dp, vertical = 9.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("›", style = MaterialTheme.typography.titleMedium, color = p.accent)
+                    Text(
+                        "›",
+                        style = TextStyle(fontFamily = MonoFamily, fontSize = 15.sp),
+                        color = p.accent,
+                    )
                     Spacer(Modifier.width(10.dp))
                     Text(ex, style = MaterialTheme.typography.bodyMedium, color = p.textSecondary)
                 }
@@ -512,4 +555,90 @@ fun HorizontalChipsScroll(content: @Composable () -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) { content() }
+}
+
+// ── Строка статуса в духе CC: модель · режим · контекст · cwd ───────────────
+
+@Composable
+fun StatusLine(
+    model: String,
+    mode: String,
+    ctxPct: Int,
+    cwd: String,
+    onClick: () -> Unit,
+) {
+    val p = LocalClaude.current
+    fun style(color: Color) = TextStyle(fontFamily = MonoFamily, fontSize = 10.5.sp, lineHeight = 14.sp, color = color)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+            )
+            .padding(horizontal = 20.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("✻", style = style(p.accent))
+        Text(" · ", style = style(p.textTertiary))
+        Text(model, style = style(p.textSecondary), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(" · ", style = style(p.textTertiary))
+        Text(mode, style = style(p.textTertiary))
+        if (ctxPct >= 0) {
+            Text(" · ", style = style(p.textTertiary))
+            Text(
+                "ctx $ctxPct%",
+                style = style(if (ctxPct >= 80) p.warn else p.textTertiary),
+            )
+        }
+        Spacer(Modifier.weight(1f))
+        Text(cwd, style = style(p.textTertiary), maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+private val ccThinkingVerbs = listOf(
+    "Thinking", "Pondering", "Noodling", "Percolating", "Mulling",
+    "Cogitating", "Ruminating", "Brewing", "Simmering", "Tinkering",
+)
+
+@Composable
+fun ThinkingLine(text: String, streaming: Boolean) {
+    val p = LocalClaude.current
+    var idx by remember { mutableIntStateOf(0) }
+    LaunchedEffect(streaming) {
+        if (streaming) {
+            while (true) {
+                delay(2400)
+                idx = (idx + 1) % ccThinkingVerbs.size
+            }
+        }
+    }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(start = 26.dp, top = 1.dp, bottom = 1.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Text(
+            "✻",
+            style = TextStyle(fontFamily = MonoFamily, fontSize = 11.5.sp, lineHeight = 17.sp),
+            color = p.accent.copy(alpha = 0.85f),
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            (if (streaming) ccThinkingVerbs[idx] else "Размышление") + "…",
+            style = MaterialTheme.typography.bodySmall.copy(fontStyle = FontStyle.Italic),
+            color = p.textTertiary,
+        )
+        if (text.isNotBlank()) {
+            Text(
+                " " + text.take(220).replace("\n", " "),
+                style = MaterialTheme.typography.bodySmall.copy(fontStyle = FontStyle.Italic),
+                color = p.textTertiary.copy(alpha = 0.8f),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
 }

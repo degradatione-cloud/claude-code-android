@@ -227,6 +227,11 @@ class Prefs(private val app: android.content.Context) {
         get() = sp.getBoolean("auto_approve", false)
         set(v) = sp.edit().putBoolean("auto_approve", v).apply()
 
+    /** Стиль ответов — как встроенные output styles Claude Code. */
+    var style: String
+        get() = sp.getString("style", "concise") ?: "concise"
+        set(v) = sp.edit().putString("style", v).apply()
+
     var darkTheme: Boolean
         get() = sp.getBoolean("dark", true)
         set(v) = sp.edit().putBoolean("dark", v).apply()

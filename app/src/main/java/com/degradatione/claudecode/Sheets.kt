@@ -236,6 +236,7 @@ fun SettingsSheet(
     var sshWs by remember { mutableStateOf(prefs.sshWorkspace) }
     var sshCmd by remember { mutableStateOf(prefs.sshCommand) }
     var sshPerm by remember { mutableStateOf(prefs.sshPermMode) }
+    var style by remember { mutableStateOf(prefs.style) }
     var showSshPass by remember { mutableStateOf(false) }
     var testing by remember { mutableStateOf(false) }
     var testOut by remember { mutableStateOf<String?>(null) }
@@ -244,6 +245,9 @@ fun SettingsSheet(
         "claude-sonnet-4-5-20250929",
         "claude-opus-4-1-20250805",
         "claude-haiku-4-5-20251001",
+        "sonnet",
+        "opus",
+        "haiku",
     )
 
     Column(
@@ -469,9 +473,9 @@ fun SettingsSheet(
             )
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                models.take(2).forEach { m ->
+                models.take(3).forEach { m ->
                     Chip(
-                        text = m.removePrefix("claude-").substringBefore("-2").let { it },
+                        text = modelChipLabel(m),
                         selected = model == m,
                         onClick = { model = m; prefs.model = m },
                     )
@@ -479,12 +483,33 @@ fun SettingsSheet(
             }
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                models.drop(2).forEach { m ->
+                models.drop(3).forEach { m ->
                     Chip(
-                        text = m.removePrefix("claude-").substringBefore("-2").let { it },
+                        text = modelChipLabel(m),
                         selected = model == m,
                         onClick = { model = m; prefs.model = m },
                     )
+                }
+            
+
+            Spacer(Modifier.height(18.dp))
+            SectionTitle("стиль ответа")
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(
+                    "concise" to "Concise",
+                    "proactive" to "Proactive",
+                ).forEach { (id, label) ->
+                    Chip(text = label, selected = style == id, onClick = { style = id; prefs.style = id })
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(
+                    "explanatory" to "Explanatory",
+                    "learning" to "Learning",
+                ).forEach { (id, label) ->
+                    Chip(text = label, selected = style == id, onClick = { style = id; prefs.style = id })
                 }
             }
 
@@ -766,14 +791,64 @@ fun LogsSheet(state: AppState, onClose: () -> Unit) {
 @Composable
 fun PermissionDialog(state: AppState, req: PermissionRequest) {
     val p = LocalClaude.current
+
+    @Composable
+    fun option(index: String, title: String, tint: Color, onClick: () -> Unit) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = 44.dp)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onClick,
+                )
+                .padding(vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier
+                    .size(22.dp)
+                    .background(p.codeBg, RoundedCornerShape(6.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    index,
+                    style = TextStyle(fontFamily = MonoFamily, fontSize = 11.5.sp),
+                    color = p.textTertiary,
+                )
+            }
+            Spacer(Modifier.width(10.dp))
+            Text(
+                title,
+                style = TextStyle(fontFamily = MonoFamily, fontSize = 13.sp, lineHeight = 18.sp),
+                color = tint,
+            )
+        }
+    }
+
     AlertDialog(
         onDismissRequest = { state.answerPermission(AppState.Verdict.DENY) },
         containerColor = p.card,
         title = {
             Column {
-                Text("Разрешить ${req.toolName}?", style = MaterialTheme.typography.titleMedium, color = p.text)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "●",
+                        style = TextStyle(fontFamily = MonoFamily, fontSize = 12.sp),
+                        color = p.accent,
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        req.toolName + "(" + req.summary + ")",
+                        style = TextStyle(fontFamily = MonoFamily, fontSize = 14.sp, fontWeight = FontWeight.SemiBold),
+                        color = p.text,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
                 Text(
-                    "Claude Code просит выполнить инструмент на устройстве",
+                    "инструмент выполнится на устройстве",
                     style = MaterialTheme.typography.labelSmall,
                     color = p.textTertiary,
                 )
@@ -784,7 +859,7 @@ fun PermissionDialog(state: AppState, req: PermissionRequest) {
                 Box(
                     Modifier
                         .fillMaxWidth()
-                        .heightIn(max = 240.dp)
+                        .heightIn(max = 220.dp)
                         .verticalScroll(rememberScrollState())
                         .background(p.codeBg, RoundedCornerShape(8.dp))
                         .padding(10.dp)
@@ -795,23 +870,23 @@ fun PermissionDialog(state: AppState, req: PermissionRequest) {
                         color = p.text,
                     )
                 }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = { state.answerPermission(AppState.Verdict.ALLOW) }) {
-                Text("Разрешить", color = p.accent, fontWeight = FontWeight.SemiBold)
-            }
-        },
-        dismissButton = {
-            Row {
-                TextButton(onClick = { state.answerPermission(AppState.Verdict.ALLOW_ALL) }) {
-                    Text("Всегда", color = p.textSecondary)
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "Do you want to proceed?",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = p.textSecondary,
+                )
+                option("1", "Yes", p.text) { state.answerPermission(AppState.Verdict.ALLOW) }
+                option("2", "Yes, и больше не спрашивать «${req.toolName}»", p.textSecondary) {
+                    state.answerPermission(AppState.Verdict.ALLOW_ALL)
                 }
-                TextButton(onClick = { state.answerPermission(AppState.Verdict.DENY) }) {
-                    Text("Отклонить", color = p.danger)
+                option("3", "No, и объяснить Claude, что делать иначе", p.danger) {
+                    state.answerPermission(AppState.Verdict.DENY)
                 }
             }
         },
+        confirmButton = {},
+        dismissButton = {},
     )
 }
 
@@ -823,4 +898,10 @@ private fun reqPreview(req: PermissionRequest): String {
         "Write" -> "файл: ${o?.optString("file_path")}\n${o?.optString("content")?.length ?: 0} символов"
         else -> req.inputJson.take(800)
     }
+}
+
+/** Подпись чипа модели: `*` — алиас Anthropic (всегда последняя версия семейства). */
+internal fun modelChipLabel(m: String): String = when (m) {
+    "sonnet", "opus", "haiku" -> "$m*"
+    else -> m.removePrefix("claude-").replace(Regex("-\\d{8}$"), "")
 }

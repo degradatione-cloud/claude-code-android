@@ -14,8 +14,8 @@ android {
         applicationId = "com.degradatione.claudecode"
         minSdk = 35
         targetSdk = 36
-        versionCode = 10004
-        versionName = "1.0.4"
+        versionCode = 10100
+        versionName = "1.1.0"
         resourceConfigurations += listOf("en", "ru")
     }
 
