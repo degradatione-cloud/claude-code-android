@@ -1,4 +1,10 @@
+> **Небольшой проект для портирования.** Десктопное приложение → Android за пару вечеров:
+> UI на Compose, тяжёлое ядро — Rust через JNI, сборка и релизы в GitHub Actions.
+> Ставится сайдлоадом, обновляется само из Releases.
+
 # Claude Code for Android
+
+[Последний релиз](https://github.com/degradatione-cloud/claude-code-android/releases/latest) · `com.degradatione.claudecode` · Android 15+ (API 35)
 
 Нативный порт десктопного Claude Code (Linux-сборка `claude-desktop` 4.29.0) на Android 15/16.
 

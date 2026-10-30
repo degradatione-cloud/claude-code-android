@@ -1,0 +1,129 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>
+  :root{
+    --page:#1F1E1D; --sidebar:#262624; --card:#2C2B29; --cardAlt:#30302D;
+    --border:#3B3A36; --text:#F5F4EF; --sec:#A6A39B; --ter:#7B786F;
+    --accent:#D97757; --ok:#6FBF8B; --warn:#E8B45C; --err:#E5796F; --code:#191918;
+  }
+  *{box-sizing:border-box; -webkit-font-smoothing:antialiased}
+  body{margin:0;background:var(--page);color:var(--text);
+       font-family:-apple-system,"Segoe UI",Roboto,"Noto Sans",sans-serif;font-size:15px}
+  .mono{font-family:"SF Mono",ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace}
+  .phone{width:420px;margin:0;padding:0 0 10px}
+  .bar{display:flex;align-items:center;gap:12px;padding:14px 18px 10px;border-bottom:1px solid rgba(59,58,54,.6)}
+  .burger{width:22px;height:16px;border-top:2px solid var(--sec);border-bottom:2px solid var(--sec);position:relative}
+  .burger:after{content:"";position:absolute;left:0;right:0;top:6px;height:2px;background:var(--sec)}
+  .ttl{flex:1;min-width:0}
+  .ttl b{display:block;font-size:15.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ttl span{font-size:11.5px;color:var(--ter)}
+  .dots{color:var(--ter);font-size:20px;letter-spacing:2px}
+  .msgs{padding:14px 18px 6px}
+  .who{font-size:11px;color:var(--ter);margin:2px 0 5px 4px}
+  .user{background:var(--cardAlt);border:1px solid var(--border);border-radius:14px;padding:11px 14px;margin-bottom:16px}
+  .a{display:flex;gap:10px;margin-bottom:14px}
+  .mark{width:18px;height:18px;border-radius:4px;background:var(--accent);flex:none;margin-top:3px;
+        clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)}
+  .body{flex:1;min-width:0;line-height:1.55}
+  .body p{margin:0 0 8px}
+  .tool{margin:2px 0 2px 26px;line-height:1.45}
+  .tool .head{display:flex;align-items:baseline;gap:7px;flex-wrap:nowrap}
+  .g{font-size:12px;width:11px;flex:none}
+  .nm{font-family:"SF Mono",ui-monospace,Menlo,monospace;font-size:12.5px;font-weight:600}
+  .args{font-family:"SF Mono",ui-monospace,Menlo,monospace;font-size:12.5px;color:var(--sec);
+        white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .out{font-family:"SF Mono",ui-monospace,Menlo,monospace;font-size:11.5px;color:var(--sec);line-height:1.4;margin-top:1px}
+  .out .gut{color:var(--ter)}
+  .more{color:var(--ter);font-size:11px;margin-left:5ch;margin-top:1px}
+  .think{margin:1px 0 2px 26px;color:var(--ter);font-style:italic;font-size:12.5px;display:flex;gap:8px}
+  .think .s{color:var(--accent);font-style:normal}
+  .err{background:#3A2523;border:1px solid rgba(229,121,111,.5);border-radius:12px;padding:11px 12px;
+       color:#E7A19A;font-family:"SF Mono",ui-monospace,Menlo,monospace;font-size:12px;line-height:1.45}
+  .err b{display:block;color:var(--err);font-family:-apple-system,sans-serif;font-size:12px;margin-bottom:4px}
+  .status{display:flex;align-items:center;gap:0;padding:3px 20px 2px;font-size:10.5px;color:var(--ter)}
+  .status .m{color:var(--sec)}
+  .status .star{color:var(--accent)}
+  .status .cwd{margin-left:auto}
+  .composer{margin:0 12px;background:var(--card);border:1px solid var(--border);border-radius:20px;padding:11px 14px 10px;
+            box-shadow:0 6px 18px rgba(0,0,0,.28)}
+  .ph{color:var(--text)}
+  .crow{display:flex;align-items:center;gap:6px;margin-top:9px}
+  .chip{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--sec);
+        border:1px solid var(--border);border-radius:999px;padding:4px 10px}
+  .chip.on{color:var(--accent);border-color:rgba(217,119,87,.5);background:rgba(217,119,87,.10)}
+  .sp{flex:1}
+  .send{width:40px;height:40px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center}
+  .send:after{content:"";width:10px;height:10px;border-left:2px solid #1F1E1D;border-top:2px solid #1F1E1D;
+              transform:rotate(45deg) translate(1px,1px)}
+  .folder{opacity:.75}
+  .note{position:fixed;right:14px;bottom:12px;font-size:10px;color:#55534d}
+</style></head>
+<body>
+<div class="phone">
+  <div class="bar">
+    <div class="burger"></div>
+    <div class="ttl"><b>рефактор парсера</b><span>API · anthropic · 2.1</span></div>
+    <div class="dots">⋯</div>
+  </div>
+
+  <div class="msgs">
+    <div class="who">Вы</div>
+    <div class="user">посмотри, почему падает тест на парсер фронтматтера, и починь</div>
+
+    <div class="a">
+      <div class="mark"></div>
+      <div class="body">
+        <p>Тест падает на пустом YAML-блоке: парсер возвращает <span class="mono">null</span> вместо пустого словаря.</p>
+      </div>
+    </div>
+
+    <div class="tool">
+      <div class="head"><span class="g" style="color:var(--ok)">✓</span><span class="nm">Bash</span><span class="args">(gradle test --tests YamlTest)</span></div>
+      <div class="out"><span class="gut">  ⎿  </span>FAILED YamlTest.emptyBlock</div>
+      <div class="more">… +12 строк</div>
+    </div>
+
+    <div class="tool">
+      <div class="head"><span class="g" style="color:var(--ok)">✓</span><span class="nm">Read</span><span class="args">(parser/yaml.kt)</span></div>
+      <div class="out"><span class="gut">  ⎿  </span>1→fun parse(src: String): Map&lt;String, Any?&gt; {</div>
+    </div>
+
+    <div class="tool">
+      <div class="head"><span class="g" style="color:var(--accent)">●</span><span class="nm">Edit</span><span class="args">(parser/yaml.kt)</span></div>
+    </div>
+
+    <div class="think"><span class="s">✻</span><span>Pondering… · проверяю ветку с пустым блоком</span></div>
+
+    <div class="a" style="margin-top:8px">
+      <div class="mark"></div>
+      <div class="body">
+        <p>Готово: пустой блок теперь даёт пустой словарь, тест <span class="mono">YamlTest.emptyBlock</span> зелёный.</p>
+      </div>
+    </div>
+
+    <div class="tool">
+      <div class="head"><span class="g" style="color:var(--err)">✗</span><span class="nm">Bash</span><span class="args">(gradle test)</span></div>
+      <div class="out" style="color:var(--err)"><span class="gut">  ⎿  </span>OutOfMemory: Java heap space</div>
+    </div>
+
+    <div class="err"><b>Ошибка</b>gradle test упал на heap — попробую с -Xmx2g</div>
+  </div>
+
+  <div class="status"><span class="star">✻</span><span>·</span><span class="m" style="margin-left:5px">sonnet-4-5</span>
+    <span style="margin-left:5px">·</span><span style="margin-left:5px">ask</span>
+    <span style="margin-left:5px">·</span><span style="margin-left:5px">ctx 12%</span>
+    <span class="cwd">~/claude-work</span></div>
+
+  <div class="composer">
+    <div class="ph">Спросите Claude…</div>
+    <div class="crow">
+      <div class="chip on">⚡ сломай хардкод</div>
+      <div class="chip on">auto-accept</div>
+      <div class="chip folder">📁</div>
+      <div class="sp"></div>
+      <div class="send"></div>
+    </div>
+  </div>
+</div>
+<div class="note">превью 1.1.0</div>
+</body></html>
