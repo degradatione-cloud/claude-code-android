@@ -603,7 +603,7 @@ fun OnboardingScreen(state: AppState, onDone: () -> Unit) {
                 value = host,
                 onValueChange = { host = it; prefs.sshHost = it },
                 label = "Хост или IP сервера",
-                placeholder = "2.26.99.238",
+                placeholder = "ssh.example.com",
                 mono = true,
             )
             Spacer(Modifier.height(12.dp))

@@ -9,3 +9,5 @@
 .cxx
 local.properties
 app-release.p12
+out/*key*.txt
+out/

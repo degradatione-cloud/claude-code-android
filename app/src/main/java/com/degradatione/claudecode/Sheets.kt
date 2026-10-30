@@ -290,7 +290,7 @@ fun SettingsSheet(
                     value = sshHost,
                     onValueChange = { sshHost = it; prefs.sshHost = it },
                     label = "Хост / IP",
-                    placeholder = "2.26.99.238",
+                    placeholder = "ssh.example.com",
                     mono = true,
                 )
                 Spacer(Modifier.height(10.dp))
